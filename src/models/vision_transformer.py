@@ -3,12 +3,12 @@ from functools import partial
 import numpy as np
 import torch
 import torch.nn as nn
-# ---- src repo ----
-# from src.utils.tensors import (
-#     trunc_normal_,
-#     repeat_interleave_batch
-# )
-# from src.masks.utils import apply_masks   
+#---- src repo ----
+from src.utils.tensors import (
+    trunc_normal_,
+    repeat_interleave_batch
+)
+from src.masks.utils import apply_masks   
 
 
 # ---- positional encoding -----
