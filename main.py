@@ -4,7 +4,7 @@ import pprint                # prints dictionaries neatly
 import yaml                  # reads the .yaml config file
 
 from src.utils.distributed import init_distributed  # sets up multi-GPU communication
-from src.train import main as app_main  # the REAL training function
+from src.train import main as app_main  # the training function
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -15,7 +15,7 @@ parser.add_argument(
     '--devices', type=str, nargs='+', default=['cuda:0'],
     help='which devices to use on local machine')
 
-# Runs once inside EACH process. rank = 0, 1, 2,  (one per GPU)
+# Runs once inside each process. rank = 0, 1, 2,  (one per GPU)
 def process_main(rank, fname, world_size, devices):
     import os
     # Make this process see only its own GPU ('cuda:1' = '1').
@@ -33,7 +33,7 @@ def process_main(rank, fname, world_size, devices):
  
     logger.info(f'called-params {fname}')
  
-    # -- load script params (YAML file into Python dict)
+    #load script params (YAML file into Python dict)
     params = None
     with open(fname, 'r') as y_file:
         params = yaml.load(y_file, Loader=yaml.FullLoader)
