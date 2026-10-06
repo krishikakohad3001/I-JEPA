@@ -111,6 +111,8 @@ class Attention(nn.Module):
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim **-0.5
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
     def forward(self, x):
@@ -214,71 +216,71 @@ class VisionTransformerPredictor(nn.Module):
         self.apply(self._init_weights)
         self.fix_init_weight()
 
-        def fix_init_weight(self):
-            def rescale(param, layer_id):
-                param.div_(math.sqrt(2.0*layer_id))
+    def fix_init_weight(self):
+        def rescale(param, layer_id):
+            param.div_(math.sqrt(2.0*layer_id))
 
-            for layer_id, layer in enumerate(self.predictor_blocks):
-                rescale(layer.attn.proj.weight.data, layer_id + 1)
-                rescale(layer.mlp.fc2.weight.data, layer_id +1)
+        for layer_id, layer in enumerate(self.predictor_blocks):
+            rescale(layer.attn.proj.weight.data, layer_id + 1)
+            rescale(layer.mlp.fc2.weight.data, layer_id +1)
 
-        def _init_weights(self,m):
-            if isinstance(m, nn.Linear):
+    def _init_weights(self,m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std= self.init_std)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant(m.bias, 0)
+
+            elif isinstance(m, nn.Conv2d):
                 trunc_normal_(m.weight, std= self.init_std)
-                if isinstance(m, nn.Linear) and m.bias is not None:
-                    nn.init.constant(m.bias, 0)
 
-                elif isinstance(m, nn.Conv2d):
-                    trunc_normal_(m.weight, std= self.init_std)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
 
-                    if m.bias is not None:
-                        nn.init.constant_(m.bias, 0)
+    def forward(self, x, masks_x, masks):
+        assert (masks is not None) and (masks_x is not None), 'Cannot run predictor without mask indices'
 
-        def forward(self, x, masks_x, masks):
-            assert (masks is not None) and (masks_x is not None), 'Cannot run predictor without mask indices'
+        if not isinstance(masks_x, list):
+            masks_x = [masks_x]  #  the context mask(s), i.e. which patches the context encoder kept.
 
-            if not isinstance(masks_x, list):
-                masks_x = [masks_x]  #  the context mask(s), i.e. which patches the context encoder kept.
+        if not isinstance(masks, list):
+            masks = [masks]  # the target mask(s), i.e. which patches the predictor must predict.
 
-            if not isinstance(masks, list):
-                masks = [masks]  # the target mask(s), i.e. which patches the predictor must predict.
+        # -- Batch size
 
-            # -- Batch size
+        B = len(x) // len(masks_x)
 
-            B = len(x) // len(masks_x)
-
-            # -- map from encoder - dim to pedictor - dim
-            x = self.predictor_embed(x)
+        # -- map from encoder - dim to pedictor - dim
+        x = self.predictor_embed(x)
 
 
-            # -- add positional embedding to x_tokens
-            x_pos_embed = self.predictor_pos_embed.repeat(B, 1, 1)
-            x+= apply_masks(x_pos_embed, masks_x)
+        # -- add positional embedding to x_tokens
+        x_pos_embed = self.predictor_pos_embed.repeat(B, 1, 1)
+        x+= apply_masks(x_pos_embed, masks_x)
 
-            _, N_ctxt, D = x.shape
+        _, N_ctxt, D = x.shape
 
-            # -- concat mask tokens to x
-            pos_embs = self.predictor_pos_embed.repeat(B,1,1)
-            pos_embs = apply_masks(pos_embs, masks)
-            pos_embs = repeat_interleave_batch(pos_embs, B, repeat= len(masks_x))
+        # -- concat mask tokens to x
+        pos_embs = self.predictor_pos_embed.repeat(B,1,1)
+        pos_embs = apply_masks(pos_embs, masks)
+        pos_embs = repeat_interleave_batch(pos_embs, B, repeat= len(masks_x))
 
-            # --
-            pred_tokens = self.mask_token.repeat(pos_embs.size(0), pos_embs.size(1),1)
-            # --
-            x = x.repeat(len(masks), 1, 1)
-            x = torch.cat([x, pred_tokens], dim=1)
-            # -- fwd prop
+        # --
+        pred_tokens = self.mask_token.repeat(pos_embs.size(0), pos_embs.size(1),1)
+        # --
+        x = x.repeat(len(masks), 1, 1)
+        x = torch.cat([x, pred_tokens], dim=1)
+        # -- fwd prop
 
-            for blk in self.predictor_blocks:
-                x = blk(x)
+        for blk in self.predictor_blocks:
+            x = blk(x)
 
-            x = self.predictor_norm(x)
-            # -- return preds for mask tokens
+        x = self.predictor_norm(x)
+        # -- return preds for mask tokens
 
-            x = x[:, N_ctxt:]
-            x = self.predictor_proj(x)
+        x = x[:, N_ctxt:]
+        x = self.predictor_proj(x)
 
-            return x
+        return x
 
 class VisionTransformer(nn.Module):
     """ Vision Transformer"""
